@@ -7,6 +7,7 @@ use ark_crypto_primitives::{
 use ark_sponge::poseidon::PoseidonConfig;
 use std::str::FromStr;
 
+/// We here define the parameters for Merkle trees used throughout our protocol
 type H = poseidon::CRH<Fp>;
 type TwoToOneH = poseidon::TwoToOneCRH<Fp>;
 
@@ -228,5 +229,3 @@ pub fn poseidon_parameters() -> PoseidonConfig<Fp> {
 
     PoseidonConfig::<Fp>::new(full_rounds, partial_rounds, alpha, mds, ark, 2, 1)
 }
-
-

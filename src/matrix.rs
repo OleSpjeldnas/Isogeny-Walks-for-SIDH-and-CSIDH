@@ -1,5 +1,6 @@
 use super::F;
 
+/// Solves a linear system of equations
 pub fn solve_linear_system(coeffs: Vec<Vec<F>>, constants: Vec<F>) -> Vec<F> {
     let size = coeffs.len();
     let (lower, upper) = lu_decomposition(&coeffs, size);
@@ -23,7 +24,7 @@ pub fn solve_linear_system(coeffs: Vec<Vec<F>>, constants: Vec<F>) -> Vec<F> {
 
     solutions
 }
-
+/// Computes the LU decomposition of a matrix
 pub fn lu_decomposition(mat: &Vec<Vec<F>>, n: usize) -> (Vec<Vec<F>>, Vec<Vec<F>>) {
     let mut lower = vec![vec![F::from(0); n]; n];
     let mut upper = vec![vec![F::from(0); n]; n];
