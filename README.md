@@ -1,3 +1,4 @@
+# Zero-Knowledge Proofs for Isogeny Walks
 This repository contains the code from the paper "Verifying Isogeny Walks with Succinct Zero-Knowledge Arguments" by Bootle, de Feo, Spjeldnæs [2025].
 
 The code is organized into the following modules:
