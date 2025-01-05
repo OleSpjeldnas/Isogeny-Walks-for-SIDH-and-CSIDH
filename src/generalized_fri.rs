@@ -30,7 +30,6 @@ fn fold(f: &DensePolynomial<F>, l: u8, theta: F) -> DensePolynomial<F> {
     while final_g.last().unwrap() == &F::from(0) {
         final_g.remove(final_g.len() - 1);
     }
-    //println!("Length final_g: {:?}", final_g.len());
     DensePolynomial { coeffs: final_g }
 }
 
@@ -39,10 +38,10 @@ fn round_commit(f_folded: &DensePolynomial<F>, s: &F, r: &F, s_ord: &u64) -> (Fi
     let leaf_crh_params = poseidon_parameters();
     let two_to_one_params = leaf_crh_params.clone();
 
-    let D: Vec<F> = (0..*s_ord).into_iter().map(|i| r * s.pow([i])).collect();
+    let D: Vec<F> = (0..*s_ord).into_iter().map(|i| r * &s.pow([i])).collect();
     let point_vec: Vec<F> = D.into_iter().map(|x| f_folded.evaluate(&x)).collect();
     let k = (((*s_ord as f32).log2()).ceil()) as u32;
-    let mut eval_vec: Vec<Vec<Fp>> = point_vec.iter().map(|x| vec![x.c0, x.c1]).collect();
+    let mut eval_vec: Vec<Vec<Fp>> = point_vec.iter().map(|x| vec![x.c0(), x.c1()]).collect();
     eval_vec = vec![eval_vec, vec![vec![Fp::from(0), Fp::from(0)]; 2u64.pow(k) as usize - *s_ord as usize]].concat();
     let eval_vec_slice: Vec<&[Fp]> = eval_vec.iter().map(|x| x.as_slice()).collect();
 
@@ -217,7 +216,7 @@ pub fn fri_verify(
                     &leaf_crh_params,
                     &two_to_one_params,
                     &roots[j + 1],
-                    [queried_points[i].c0, queried_points[i].c1]
+                    [queried_points[i].c0(), queried_points[i].c1()]
                 )
                 .unwrap());
             i += 1;
@@ -227,7 +226,7 @@ pub fn fri_verify(
                         &leaf_crh_params,
                         &two_to_one_params,
                         &roots[j],
-                        [queried_points[i].c0, queried_points[i].c1]
+                        [queried_points[i].c0(), queried_points[i].c1()]
                     )
                     .unwrap());
                 i += 1;

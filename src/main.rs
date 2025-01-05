@@ -2,7 +2,7 @@ use ark_ff::MontFp;
 use ark_poly::univariate::DensePolynomial;
 //pub mod field;
 pub mod sidh_sike_p434;
-use sidh_sike_p434::{Fq2 as F, F as Fp};
+use sidh_sike_p434::{MyFq2 as F, F as Fp};
 pub mod matrix;
 use matrix::*;
 use merkle::{poseidon_parameters, FieldMT, FieldPath};
