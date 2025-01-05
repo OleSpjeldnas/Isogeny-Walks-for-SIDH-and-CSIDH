@@ -133,7 +133,7 @@ fn round(i: usize) -> Option<(u64, u64, f32)> {
         s = s.pow(&[2]);
     }
     let mut g: F = s.clone();
-    /// <g> is the interpolation domain for the witness polynomials
+    // <g> is the interpolation domain for the witness polynomials
     for _ in 0..5 {
         g = g.pow(&[2]);
     }
@@ -166,20 +166,20 @@ fn round(i: usize) -> Option<(u64, u64, f32)> {
     let y_start: F = b_witness.evaluate(&F::from(1));
     let y_end: F = b_witness.evaluate(&g.pow(&[n as u64 - 1]));
 
-    /// s_ord is the multiplicative order of s
+    // s_ord is the multiplicative order of s
     let s_ord: u64 = n as u64 * 32;
-    /// The below two variables are security parameteres are for the FRI protocol
+    // The below two variables are security parameteres are for the FRI protocol
     let rep_param: usize = 1;
     let grinding_param: u8 = 32;
 
-    /// Prove the validity of the isogeny walk
+    // Prove the validity of the isogeny walk
     let (challenge_vals, roots_fri, roots, paths_fri, points_fri, additional_paths_and_points, ws, paths_and_points) =
         prove(witness, psi, g, s, r, s_ord, &y_start, &y_end, l_list.clone(), rep_param, grinding_param);
     println!("Prover Time: {} s", now.elapsed().as_secs());
     let prover_time = now.elapsed().as_secs();
 
     let now = Instant::now();
-    /// Verify the proof
+    // Verify the proof
     let b = verify(
         challenge_vals.clone(),
         roots_fri.clone(),

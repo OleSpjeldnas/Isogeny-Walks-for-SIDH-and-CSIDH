@@ -12,3 +12,5 @@ ark-crypto-primitives = "0.4.0-alpha"
 ark-sponge = "0.4.0-alpha"
 ark-std= "0.4.0-alpha"
 ark-serialize = "0.4.0-alpha"
+zeroize = { version = "1.5", features = ["derive"] }
+rand = "0.8"  

@@ -90,11 +90,11 @@ fn blinded_eval_first_six_steps(
     let mut merkle_paths_u: Vec<FieldPath> = vec![];
     let mut merkle_paths_g: Vec<FieldPath> = vec![];
 
-    /// Define vecs of queried points
+    // Define vecs of queried points
     let mut queried_points: Vec<F> = vec![];
     let mut queried_points_u: Vec<F> = vec![];
     let mut queried_points_g: Vec<F> = vec![];
-    /// For each index, query the merkle trees merkle_tree, merkle_tree_u and merkle_tree_g
+    // For each index, query the merkle trees merkle_tree, merkle_tree_u and merkle_tree_g
     for index in beta_indices.iter() {
         let u_eval = U[*index];
         let g_eval = g_evals[*index] + random_vec_g[*index];
