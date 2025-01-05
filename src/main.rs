@@ -30,7 +30,7 @@ use ark_serialize::{CanonicalSerialize, Compress};
 fn main() -> io::Result<()> {
     let mut results = Vec::new();
     // Execute 5 rounds of the isogeny proof process
-    for i in 0..7 {
+    for i in 0..5 {
         if let Some(result) = round(i) {
             // Store the round index, prover time, verifier time, and proof size
             results.push((9+i, result.0, result.1, result.2));
