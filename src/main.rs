@@ -6,9 +6,8 @@ pub mod matrix;
 use matrix::*;
 use merkle::{poseidon_parameters, FieldMT, FieldPath};
 use std::{
-    fs::{self, File},
+    fs::File,
     io::{self, BufRead, Write},
-    path::Path,
     str::FromStr,
     time::Instant,
 };
@@ -31,10 +30,10 @@ use ark_serialize::{CanonicalSerialize, Compress};
 fn main() -> io::Result<()> {
     let mut results = Vec::new();
     // Execute 5 rounds of the isogeny proof process
-    for i in 0..5 {
+    for i in 0..7 {
         if let Some(result) = round(i) {
             // Store the round index, prover time, verifier time, and proof size
-            results.push((i, result.0, result.1, result.2));
+            results.push((9+i, result.0, result.1, result.2));
         }
     } // Specify the path to the file where you want to save the results
     let file_path = "results_new.txt";

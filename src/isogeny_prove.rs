@@ -67,15 +67,15 @@ fn blinded_eval_first_six_steps(
     // Generate random challenge from merkle root
     let c: F = F::new(poseidon::CRH::<Fp>::evaluate(&params, vec![g_mtree.root()]).unwrap(), Fp::from(0));
     // Define H as g_evals + c*evals_vec
-    let H: Vec<F> = g_evals.iter().zip(evals_vec.iter()).map(|(g_eval, eval)| *g_eval + c * *eval).collect();
+    let h: Vec<F> = g_evals.iter().zip(evals_vec.iter()).map(|(g_eval, eval)| *g_eval + c * *eval).collect();
 
     // Define T as random_vec_g + c*random_vec
-    let T: Vec<F> = random_vec_g.iter().zip(random_vec.iter()).map(|(rand_g, rand)| *rand_g + c * *rand).collect();
+    let t: Vec<F> = random_vec_g.iter().zip(random_vec.iter()).map(|(rand_g, rand)| *rand_g + c * *rand).collect();
 
     // Define U as H+T concatenated with T
-    let mut U: Vec<F> = H.iter().zip(T.iter()).map(|(h, t)| *h + *t).collect();
-    U.extend(T.iter().cloned());
-    let u_slice: Vec<Vec<Fp>> = U.iter().map(|x| vec![x.c0(), x.c1()]).collect();
+    let mut u: Vec<F> = h.iter().zip(t.iter()).map(|(h, t)| *h + *t).collect();
+    u.extend(t.iter().cloned());
+    let u_slice: Vec<Vec<Fp>> = u.iter().map(|x| vec![x.c0(), x.c1()]).collect();
     // Commit to U
     let u_mtree = FieldMT::new(&leaf_crh_params, &two_to_one_params, u_slice).unwrap();
 
@@ -93,7 +93,7 @@ fn blinded_eval_first_six_steps(
     let mut queried_points_g: Vec<F> = vec![];
     // For each index, query the merkle trees merkle_tree, merkle_tree_u and merkle_tree_g
     for index in beta_indices.iter() {
-        let u_eval = U[*index];
+        let u_eval = u[*index];
         let g_eval = g_evals[*index] + random_vec_g[*index];
         let f_eval = evals_vec[*index] + random_vec[*index];
         queried_points.push(f_eval);
@@ -119,7 +119,7 @@ fn blinded_eval_first_six_steps(
         queried_points_u: queried_points_u,
         queried_points_g: queried_points_g,
     };
-    (g_eval, paths_and_points, g, u_mtree, U)
+    (g_eval, paths_and_points, g, u_mtree, u)
 }
 
 // Verifies steps 1.-6. of the BlindedEval subprotocol of FRI
@@ -349,32 +349,32 @@ pub fn prove(
     let const_c = F::new(poseidon::CRH::<Fp>::evaluate(&params, vec![c_paths_and_points.root_g]).unwrap(), Fp::from(0));
 
     // Define E as in the batched general FRI protocol
-    let E: usize = 4 * n;
+    let e: usize = 4 * n;
 
     // Define the Q polynomials as in the batched general FRI protocol
 
-    let Q_0 =
-        DensePolynomial { coeffs: vec![vec![F::from(0); E - n], vec![F::new(zeta_vec[0], Fp::from(0))]].concat() }
+    let q_0 =
+        DensePolynomial { coeffs: vec![vec![F::from(0); e - n], vec![F::new(zeta_vec[0], Fp::from(0))]].concat() }
             .mul(
                 &(witness_g.clone()
                     + DensePolynomial { coeffs: vec![const_witness] }.mul(&b_witness)
                     + DensePolynomial { coeffs: vec![-ws[0] - const_witness * challenge_vals[0]] }),
             )
             .div(&DensePolynomial { coeffs: vec![-z, F::from(1)] });
-    let Q_1 =
-        DensePolynomial { coeffs: vec![vec![F::from(0); E - n - 1], vec![F::new(zeta_vec[3], Fp::from(0))]].concat() }
+    let q_1 =
+        DensePolynomial { coeffs: vec![vec![F::from(0); e - n - 1], vec![F::new(zeta_vec[3], Fp::from(0))]].concat() }
             .mul(
                 &(psi_g.clone()
                     + DensePolynomial { coeffs: vec![const_psi] }.mul(&psi)
                     + DensePolynomial { coeffs: vec![-ws[1] - const_psi * challenge_vals[3]] }),
             )
             .div(&DensePolynomial { coeffs: vec![-z, F::from(1)] });
-    let Q_2 = (c_g.clone()
+    let q_2 = (c_g.clone()
         + DensePolynomial { coeffs: vec![const_c] }.naive_mul(&c)
         + DensePolynomial { coeffs: vec![-ws[2] - const_c * challenge_vals[4]] })
     .div(&DensePolynomial { coeffs: vec![-z, F::from(1)] });
 
-    let composition_poly = Q_0 + Q_1 + Q_2;
+    let composition_poly = q_0 + q_1 + q_2;
 
     // Perform the generalized FRI protocol on the composition polynomial P(x)
     let (paths_fri, points_fri, roots_fri, indices) =
@@ -428,16 +428,16 @@ pub fn verify(
         grinding_param,
     );
     // Check that the challenges were computed correctly
-    let E: u64 = 4 * n;
+    let e: u64 = 4 * n;
     let c1: F = initial_challenge(y_start, &challenges[0], &z);
     let c2: F = mod_challenge(&challenges[0], &challenges[1], &z, &g, &n);
     let c3: F = psi_challenge(&challenges[0], &challenges[2], &challenges[3], &z, n, &g);
     let c4: F = final_challenge(y_end, &challenges[0], &z, n, &g);
 
-    let asserted_c: F = alpha_1 * z.pow(&[E - n - 2]) * c1
-        + alpha_2 * z.pow(&[E - 3 * n - 13]) * c2
-        + alpha_3 * z.pow(&[E - n - 5]) * c3
-        + alpha_4 * z.pow(&[E - n - 2]) * c4;
+    let asserted_c: F = alpha_1 * z.pow(&[e - n - 2]) * c1
+        + alpha_2 * z.pow(&[e - 3 * n - 13]) * c2
+        + alpha_3 * z.pow(&[e - n - 5]) * c3
+        + alpha_4 * z.pow(&[e - n - 2]) * c4;
     assert_eq!(asserted_c, challenges[4]);
 
     // Check consistency between P(x) in FRI and the committed-to polynomials
@@ -466,8 +466,8 @@ pub fn verify(
             let witness_val_1: F = (points_for_consistency[0][i] - numerator_0) / (x_0 - z);
             let psi_val: F = (points_for_consistency[1][i] - numerator_1) / (x_0 - z);
             let c_val: F = (points_for_consistency[2][i] - numerator_2) / (x_0 - z);
-            let asserted_p: F = F::new(zeta_vec[0], Fp::from(0)) * x_0.pow(&[E - n]) * witness_val_1
-                + F::new(zeta_vec[3], Fp::from(0)) * x_0.pow(&[E - n - 1]) * psi_val
+            let asserted_p: F = F::new(zeta_vec[0], Fp::from(0)) * x_0.pow(&[e - n]) * witness_val_1
+                + F::new(zeta_vec[3], Fp::from(0)) * x_0.pow(&[e - n - 1]) * psi_val
                 + c_val;
             if asserted_p != points_first[i] {
                 return false;
@@ -478,35 +478,35 @@ pub fn verify(
     false
 }
 
-// The challenge polynomial based on the second modular polynomial
-fn mod_challenge(x: &F, y: &F, z: &F, g: &F, T: &u64) -> F {
+// The verifier challenge based on the second modular polynomial
+fn mod_challenge(x: &F, y: &F, z: &F, g: &F, t: &u64) -> F {
     let eval: F = x * x * x + y * y * y - x * x * y * y + F::from(1488u128) * (x * x * y + y * y * x)
         - F::from(162000u128) * (x * x + y * y)
         + F::from(40773375u128) * x * y
         + F::from(8748000000u128) * (x + y)
         - F::from(157464000000000u128);
 
-    (*&z - &g.pow(&[*T - 1])) * eval / (*&z.pow(&[*T]) - &F::from(1))
+    (*&z - &g.pow(&[*t - 1])) * eval / (*&z.pow(&[*t]) - &F::from(1))
 }
 
 // Returns (p(x)-y_0)/(x - 1)
 fn initial_poly(y_0: &F, p: DensePolynomial<F>) -> DensePolynomial<F> {
     (p + DensePolynomial { coeffs: vec![-*y_0] }).div(&DensePolynomial { coeffs: vec![F::from(-1), F::from(1)] })
 }
-//Returns (p(x)-y_end)/(x - g^(T-1))
-fn final_poly(y_end: &F, p: DensePolynomial<F>, g: F, T: u64) -> DensePolynomial<F> {
-    (p + DensePolynomial { coeffs: vec![-*y_end] }).div(&DensePolynomial { coeffs: vec![-g.pow(&[T - 1]), F::from(1)] })
+//Returns (p(x)-y_end)/(x - g^(t-1))
+fn final_poly(y_end: &F, p: DensePolynomial<F>, g: F, t: u64) -> DensePolynomial<F> {
+    (p + DensePolynomial { coeffs: vec![-*y_end] }).div(&DensePolynomial { coeffs: vec![-g.pow(&[t - 1]), F::from(1)] })
 }
 
 // Returns the composite polynomial
 fn compute_c(
     c1: DensePolynomial<F>, c2: DensePolynomial<F>, c3: DensePolynomial<F>, c4: DensePolynomial<F>, alphas: &Vec<F>,
-    T: &usize,
+    t: &usize,
 ) -> DensePolynomial<F> {
-    let E: usize = 4 * T;
-    let deg_1: usize = E - T - 2;
-    let deg_2: usize = E - T - 5;
-    let deg_3: usize = E - 3 * T - 13;
+    let e: usize = 4 * t;
+    let deg_1: usize = e - t - 2;
+    let deg_2: usize = e - t - 5;
+    let deg_3: usize = e - 3 * t - 13;
 
     c1.mul(&DensePolynomial { coeffs: vec![vec![F::from(0); deg_1], vec![alphas[0]]].concat() })
         + c2.mul(&DensePolynomial { coeffs: vec![vec![F::from(0); deg_3], vec![alphas[1]]].concat() })
@@ -514,7 +514,7 @@ fn compute_c(
         + c4.mul(&DensePolynomial { coeffs: vec![vec![F::from(0); deg_1], vec![alphas[3]]].concat() })
 }
 // Returns (x-g^(T-1))*Phi_2(p(x), q(x))/(x^n - 1)
-fn mod_poly_poly(p: &DensePolynomial<F>, q: &DensePolynomial<F>, T: usize, g: F) -> DensePolynomial<F> {
+fn mod_poly_poly(p: &DensePolynomial<F>, q: &DensePolynomial<F>, t: usize, g: F) -> DensePolynomial<F> {
     let p_squared: DensePolynomial<F> = p.mul(p);
     let q_squared: DensePolynomial<F> = q.mul(q);
     let p_cubed: DensePolynomial<F> = p_squared.mul(p);
@@ -531,8 +531,8 @@ fn mod_poly_poly(p: &DensePolynomial<F>, q: &DensePolynomial<F>, T: usize, g: F)
         + DensePolynomial { coeffs: vec![F::from(8748000000u128)] }.mul(&(p + q))
         + DensePolynomial { coeffs: vec![-F::from(157464000000000u128)] };
 
-    let vanishing_domain = GeneralEvaluationDomain::<F>::new(T).unwrap();
-    temp.mul(&DensePolynomial { coeffs: vec![-g.pow(&[T as u64 - 1]), F::from(1)] })
+    let vanishing_domain = GeneralEvaluationDomain::<F>::new(t).unwrap();
+    temp.mul(&DensePolynomial { coeffs: vec![-g.pow(&[t as u64 - 1]), F::from(1)] })
         .divide_by_vanishing_poly(vanishing_domain)
         .unwrap()
         .0
@@ -546,13 +546,13 @@ fn final_challenge(y_end: &F, eval: &F, x_0: &F, n: &u64, g: &F) -> F {
 }
 //Returns the polynomial ((x-g^(T-2))*(x-g^(T-1))*(p(x)-q(x))*psi(x)-1)/(x^T-1)
 fn psi_poly(
-    p: &DensePolynomial<F>, q: &DensePolynomial<F>, psi: &DensePolynomial<F>, T: usize, g: F,
+    p: &DensePolynomial<F>, q: &DensePolynomial<F>, psi: &DensePolynomial<F>, t: usize, g: F,
 ) -> DensePolynomial<F> {
     let diff: DensePolynomial<F> = p.sub(q);
-    let g_pow: F = g.pow(&[T as u64 - 2]);
+    let g_pow: F = g.pow(&[t as u64 - 2]);
     let x_1_poly: DensePolynomial<F> = DensePolynomial { coeffs: vec![-g_pow, F::from(1)] }
         .mul(&DensePolynomial { coeffs: vec![-g_pow * g, F::from(1)] });
-    let vanishing_domain = GeneralEvaluationDomain::<F>::new(T).unwrap();
+    let vanishing_domain = GeneralEvaluationDomain::<F>::new(t).unwrap();
     x_1_poly
         .mul(&(diff.mul(psi) + DensePolynomial { coeffs: vec![F::from(-1)] }))
         .divide_by_vanishing_poly(vanishing_domain)
