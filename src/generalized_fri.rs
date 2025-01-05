@@ -3,7 +3,7 @@ use ark_crypto_primitives::{crh::poseidon, CRHScheme};
 use ark_ff::Field;
 use ark_poly::{univariate::DensePolynomial, Polynomial};
 
-// This function executes one folding step in the CSIDH-FRI algorithm
+// This function executes one folding step in the Generalized FRI algorithm
 fn fold(f: &DensePolynomial<F>, l: u8, theta: F) -> DensePolynomial<F> {
     let mut g_polys: Vec<Vec<F>> = Vec::new();
     let d = (((Polynomial::degree(f)) / (l as usize)) as f32).floor() as usize + 1;

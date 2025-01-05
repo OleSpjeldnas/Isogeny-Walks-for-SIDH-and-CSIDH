@@ -149,7 +149,7 @@ fn verify_blinded_eval_first_six_steps(g_eval: F, paths_and_points: &PathsAndPoi
         let path_u = &paths_and_points.merkle_paths_u[i];
         let point_u = &paths_and_points.queried_points_u[i];
 
-        /// Verify that all the Merkle paths are valid and the relation U == G + c * F holds at the queried points
+        // Verify that all the Merkle paths are valid and the relation U == G + c * F holds at the queried points
         result = result
             && paths_and_points.merkle_paths_f[i]
                 .verify(&leaf_crh_params, &two_to_one_params, &root_f, [point_f.c0, point_f.c1])

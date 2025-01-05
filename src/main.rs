@@ -29,8 +29,8 @@ use isogeny_prove::{prove, verify};
 pub mod merkle;
 use ark_serialize::{CanonicalSerialize, Compress};
 
-/// The entry point of the application.
-/// Executes multiple rounds of isogeny proofs and records the results.
+// The entry point of the application.
+// Executes multiple rounds of isogeny proofs and records the results.
 fn main() -> io::Result<()> {
     let mut results = Vec::new();
     // Execute 5 rounds of the isogeny proof process
@@ -119,9 +119,9 @@ fn round(i: usize) -> Option<(u64, u64, f32)> {
     // Start timing the prover
     let now = Instant::now();
 
-    /// Define the list `l_list` based on the current round index
-    /// This list can contain sublists of arbitrary positive integers, as we're using a generalized 
-    /// version of the FRI protocol which can handle arbitrary folding factors
+    // Define the list `l_list` based on the current round index
+    // This list can contain sublists of arbitrary positive integers, as we're using a generalized 
+    // version of the FRI protocol which can handle arbitrary folding factors
     let l_list: Vec<usize> = vec![vec![2; 11 + i]].concat();
 
     // We define `s` as the generator of the group of order 2^5 * n, where n is the length of the isogeny walk
@@ -202,7 +202,7 @@ fn round(i: usize) -> Option<(u64, u64, f32)> {
     );
     println!("Verifier Time: {} ms", now.elapsed().as_millis());
     let verifier_time = now.elapsed().as_millis() as u64;
-    /// Compute the total size of all the proof elements
+    // Compute the total size of all the proof elements
     if b {
         let size1 = challenge_vals.serialized_size(Compress::Yes);
         let size2 = roots.serialized_size(Compress::Yes);
