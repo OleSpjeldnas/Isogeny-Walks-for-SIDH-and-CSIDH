@@ -1,7 +1,7 @@
 use super::{poseidon_parameters, solve_linear_system, FieldMT, FieldPath, Fp, F};
 use ark_crypto_primitives::{crh::poseidon, CRHScheme};
 use ark_ff::Field;
-use ark_poly::{univariate::DensePolynomial, Polynomial};
+use ark_poly::{univariate::DensePolynomial, DenseUVPolynomial, EvaluationDomain, GeneralEvaluationDomain, Polynomial};
 
 // This function executes one folding step in the Generalized FRI algorithm
 fn fold(f: &DensePolynomial<F>, l: u8, theta: F) -> DensePolynomial<F> {
@@ -34,12 +34,13 @@ fn fold(f: &DensePolynomial<F>, l: u8, theta: F) -> DensePolynomial<F> {
 }
 
 // Computes the Merkle tree of the folded f on the evaluation domain r<s>
-fn round_commit(f_folded: &DensePolynomial<F>, s: &F, r: &F, s_ord: &u64) -> (FieldMT, Fp, Vec<F>) {
+fn round_commit(f_folded: &DensePolynomial<F>, r: &F, s_ord: &usize) -> (FieldMT, Fp, Vec<F>) {
     let leaf_crh_params = poseidon_parameters();
     let two_to_one_params = leaf_crh_params.clone();
 
-    let D: Vec<F> = (0..*s_ord).into_iter().map(|i| r * &s.pow([i])).collect();
-    let point_vec: Vec<F> = D.into_iter().map(|x| f_folded.evaluate(&x)).collect();
+    let eval_domain = GeneralEvaluationDomain::<F>::new(*s_ord).unwrap();
+    let f_transformed = transform_polynomial(f_folded.clone(), *r);
+    let point_vec: Vec<F> = eval_domain.fft(&f_transformed);
     let k = (((*s_ord as f32).log2()).ceil()) as u32;
     let mut eval_vec: Vec<Vec<Fp>> = point_vec.iter().map(|x| vec![x.c0(), x.c1()]).collect();
     eval_vec = vec![eval_vec, vec![vec![Fp::from(0), Fp::from(0)]; 2u64.pow(k) as usize - *s_ord as usize]].concat();
@@ -51,13 +52,13 @@ fn round_commit(f_folded: &DensePolynomial<F>, s: &F, r: &F, s_ord: &u64) -> (Fi
 
 // Returns (Merkle Trees, Merkle Roots, Evaluations)
 fn commit(
-    f: DensePolynomial<F>, l_list: Vec<usize>, mut s: F, mut r: F, mut s_ord: u64,
+    f: DensePolynomial<F>, l_list: Vec<usize>, mut r: F, mut s_ord: usize,
 ) -> (Vec<FieldMT>, Vec<Fp>, Vec<Vec<F>>) {
     let mut mtrees: Vec<FieldMT> = Vec::new();
     let mut points: Vec<Vec<F>> = Vec::new();
     let mut roots: Vec<Fp> = Vec::new();
 
-    let (first_mt, first_root, first_points) = round_commit(&f, &s, &r, &s_ord);
+    let (first_mt, first_root, first_points) = round_commit(&f, &r, &s_ord);
     mtrees.push(first_mt);
     points.push(first_points);
     roots.push(first_root);
@@ -70,9 +71,8 @@ fn commit(
     for i in 0..n_rounds {
         folded_polys.push(fold(folded_polys.last().unwrap(), l_list[i] as u8, theta_vec[i]));
         r = r.pow([l_list[i] as u64]);
-        s = s.pow([l_list[i] as u64]);
-        s_ord /= l_list[i] as u64;
-        let (m, r, p) = round_commit(folded_polys.last().unwrap(), &s, &r, &s_ord);
+        s_ord /= l_list[i];
+        let (m, r, p) = round_commit(folded_polys.last().unwrap(), &r, &s_ord);
         roots.push(r);
         mtrees.push(m);
         points.push(p);
@@ -111,7 +111,7 @@ fn query(
     // Vec of indices to query consistency for PolyIOP
     let mut indices_first: Vec<usize> = Vec::new();
     let mut indices: Vec<u64> = Vec::new();
-    indices.push(calculate_hash(&l_list, n as u64));
+    indices.push(calculate_hash(&l_list, n).try_into().unwrap());
     for _ in 0..alpha {
         indices_first.push(*indices.last().unwrap() as usize);
         let mut s_ord = n.clone();
@@ -129,12 +129,12 @@ fn query(
 
             paths = [paths.clone(), m].concat();
             queried_points = [queried_points.clone(), p.clone()].concat();
-            indices.push(calculate_hash(&indices, s_ord as u64));
+            indices.push(calculate_hash(&indices, s_ord).try_into().unwrap());
             s_ord /= l;
         }
     }
     for _ in 0..grinding_param {
-        let index = calculate_hash(&indices_first.last().unwrap(), n as u64).try_into().unwrap();
+        let index = calculate_hash(&indices_first.last().unwrap(), n).try_into().unwrap();
         indices_first.push(index);
         queried_points.push(points[0][index]);
         paths.push(mtrees[0].generate_proof(index).unwrap());
@@ -142,10 +142,10 @@ fn query(
     (paths, queried_points, indices_first)
 }
 
-pub fn fri_prove(
-    f: DensePolynomial<F>, l_list: Vec<usize>, s: F, r: F, s_ord: u64, alpha: usize, grinding_param: u8,
+pub fn generalized_fri_prove(
+    f: DensePolynomial<F>, l_list: Vec<usize>, r: F, s_ord: usize, alpha: usize, grinding_param: u8,
 ) -> (Vec<FieldPath>, Vec<F>, Vec<Fp>, Vec<usize>) {
-    let (mtrees, mroots, evals) = commit(f, l_list.clone(), s, r, s_ord.clone());
+    let (mtrees, mroots, evals) = commit(f, l_list.clone(), r, s_ord.clone());
 
     let (paths, points, indices) = query(mtrees, evals, l_list, s_ord as usize, alpha, grinding_param);
 
@@ -176,8 +176,8 @@ fn verify_fold_at_index(points: Vec<F>, x: F, t: F, l: usize, theta: F) -> bool 
 
 //Returns indices to query for PolyIOP together with the corresponding points
 pub fn fri_verify(
-    mut paths: Vec<FieldPath>, mut queried_points: Vec<F>, roots: Vec<Fp>, l_list: Vec<usize>, s: F, r: F, s_ord: u64,
-    alpha: u8, grinding_param: u8,
+    mut paths: Vec<FieldPath>, mut queried_points: Vec<F>, roots: Vec<Fp>, l_list: Vec<usize>, s: F, r: F,
+    s_ord: usize, alpha: u8, grinding_param: u8,
 ) -> (Vec<F>, Vec<usize>) {
     let leaf_crh_params = poseidon_parameters();
     let two_to_one_params = leaf_crh_params.clone();
@@ -185,17 +185,17 @@ pub fn fri_verify(
     let mut t_vals: Vec<F> = Vec::new();
     let mut s_vals: Vec<F> = Vec::new();
     let mut r_vals: Vec<F> = Vec::new();
-    let mut s_ord_vals: Vec<u64> = Vec::new();
+    let mut s_ord_vals: Vec<usize> = Vec::new();
 
     s_vals.push(s);
     s_ord_vals.push(s_ord);
     r_vals.push(r);
     for (i, l) in l_list.as_slice().iter().enumerate() {
-        t_vals.push(s.pow(&[s_ord / (*l as u64)]));
+        t_vals.push(s.pow(&[(s_ord / *l) as u64]));
 
         r_vals.push(r_vals[i].pow(&[*l as u64]));
         s_vals.push(s_vals[i].pow(&[*l as u64]));
-        s_ord_vals.push(s_ord_vals[i] / (*l as u64));
+        s_ord_vals.push(s_ord_vals[i] / (*l as usize));
     }
     // Define all the thetas using Fiat-Shamir
     let mut theta_vec: Vec<F> = Vec::new();
@@ -206,7 +206,7 @@ pub fn fri_verify(
         rr.push(*root);
         theta_vec.push(F::new(poseidon::CRH::<Fp>::evaluate(&params, rr.clone()).unwrap(), Fp::from(0)));
     }
-    let mut indices: Vec<u64> = vec![calculate_hash(&l_list, s_ord as u64)];
+    let mut indices: Vec<usize> = vec![calculate_hash(&l_list, s_ord)];
     let mut i: usize = 0;
     for __ in 0..alpha {
         //points_first.push(queried_points[i]);
@@ -243,12 +243,12 @@ pub fn fri_verify(
             let index = *indices.last().unwrap();
             assert!(verify_fold_at_index(
                 queried_points[0..*l as usize + 1].to_vec(),
-                s_vals[i].pow(&[index]) * r_vals[i],
+                s_vals[i].pow(&[index as u64]) * r_vals[i],
                 t_vals[i],
                 *l as usize,
                 theta_vec[i]
             ));
-            indices.push(calculate_hash(&indices, s_ord_vals[i] as u64));
+            indices.push(calculate_hash(&indices, s_ord_vals[i]));
             paths.drain(0..*l as usize + 1);
             queried_points.drain(0..*l as usize + 1);
         }
@@ -261,11 +261,21 @@ pub fn fri_verify(
 
     (points_first, indices_first)
 }
+use ark_std::Zero;
+// We define a function to transform a polynomial P(x) into Q(x) := P(r*x)
+// This allows us to use FFTs on the evaluation domain r<s> by evaluating Q(x) on the domain <s>
+pub fn transform_polynomial(p: DensePolynomial<F>, alpha: F) -> DensePolynomial<F> {
+    let mut coeffs = vec![F::zero(); p.coeffs.len()];
+    for (i, coeff) in p.coeffs.iter().enumerate() {
+        coeffs[i] = coeff * &alpha.pow([i as u64]);
+    }
+    DensePolynomial::from_coefficients_vec(coeffs)
+}
 
 use std::collections::hash_map::DefaultHasher;
 use std::hash::{Hash, Hasher};
-fn calculate_hash<T: Hash>(t: &T, n: u64) -> u64 {
+fn calculate_hash<T: Hash>(t: &T, n: usize) -> usize {
     let mut s = DefaultHasher::new();
     t.hash(&mut s);
-    s.finish() % n
+    s.finish() as usize % n
 }

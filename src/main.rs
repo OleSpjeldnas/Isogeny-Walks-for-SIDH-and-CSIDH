@@ -1,6 +1,5 @@
-use ark_ff::MontFp;
-use ark_poly::univariate::DensePolynomial;
-//pub mod field;
+use ark_poly::{univariate::DensePolynomial, EvaluationDomain, GeneralEvaluationDomain, Polynomial};
+use std::ops::Mul;
 pub mod sidh_sike_p434;
 use sidh_sike_p434::{MyFq2 as F, F as Fp};
 pub mod matrix;
@@ -8,7 +7,7 @@ use matrix::*;
 use merkle::{poseidon_parameters, FieldMT, FieldPath};
 use std::{
     fs::{self, File},
-    io::{self, Write},
+    io::{self, BufRead, Write},
     path::Path,
     str::FromStr,
     time::Instant,
@@ -20,9 +19,7 @@ pub mod get_roots;
 pub mod isogeny_prove;
 use ark_crypto_primitives::crh::poseidon;
 use ark_crypto_primitives::CRHScheme;
-use ark_ff::Field;
-use ark_ff::UniformRand;
-use ark_poly::Polynomial;
+use ark_ff::{Field, UniformRand};
 use ark_std::test_rng;
 use generalized_fri::*;
 use isogeny_prove::{prove, verify};
@@ -46,47 +43,39 @@ fn main() -> io::Result<()> {
     Ok(())
 }
 
-/// Reads lines from a file and parses them into a vector of field elements.
-///
-/// # Arguments
-///
-/// * `filename` - The path to the file to read.
-///
-/// # Returns
-///
-/// A `Result` containing a vector of `F` elements or an `io::Error`.
-fn lines_from_file(filename: impl AsRef<Path>) -> io::Result<Vec<F>> {
-    let file_content = fs::read_to_string(filename)?;
-    let lines = file_content.split(',').collect::<Vec<_>>();
-    let mut results = Vec::new();
-    for line in lines {
+fn parse_isogeny_walk(filename: &str) -> io::Result<Vec<F>> {
+    let file = File::open(filename)?;
+    let reader = io::BufReader::new(file);
+    let mut elements = Vec::new();
+
+    for line in reader.lines() {
+        let line = line?.trim().to_string();
+        // Skip empty lines
+        if line.is_empty() {
+            continue;
+        }
+
         let a: Fp;
         let b: Fp;
-        // If the line does not contain "*a", parse it as a single Fp element
         if !line.contains("*a") {
-            println!("line: {:?}", line);
-            a = Fp::from_str(line).map_err(|_| io::Error::new(io::ErrorKind::InvalidData, "Failed to parse Fp4"))?;
+            // Just a constant term
             b = Fp::from(0);
+            a = Fp::from_str(&line).unwrap();
         } else if !line.contains("+") {
-            // If the line contains "*a" but not "+", parse accordingly
-            let mut parts = line.trim().split("*a");
-            b = Fp::from_str(parts.next().unwrap().trim())
-                .map_err(|_| io::Error::new(io::ErrorKind::InvalidData, "Failed to parse Fp2"))?;
+            // Just an 'a' term
+            b = Fp::from_str(&line).unwrap();
             a = Fp::from(0);
         } else {
-            // If the line contains both "*a" and "+", parse both parts
-            let mut parts = line.trim().split("*a +");
-            b = Fp::from_str(parts.next().unwrap())
-                .map_err(|_| io::Error::new(io::ErrorKind::InvalidData, "Failed to parse Fp1"))?;
-            a = Fp::from_str(parts.next().unwrap().trim())
-                .map_err(|_| io::Error::new(io::ErrorKind::InvalidData, "Failed to parse Fp5"))?;
+            // Both terms
+            let (b_str, a_str) = line.split_once("*a + ").unwrap();
+            a = Fp::from_str(a_str).unwrap();
+            b = Fp::from_str(b_str).unwrap();
         }
-        // Combine the parsed parts into a quadratic extension field element
-        results.push(F::new(a, b));
+        elements.push(F::new(a, b));
     }
-    Ok(results)
-}
 
+    Ok(elements)
+}
 /// Writes the results of each round to a specified file.
 ///
 /// # Arguments
@@ -116,65 +105,81 @@ fn write_results_to_file(results: &Vec<(usize, u64, u64, f32)>, file_path: &str)
 ///
 /// An `Option` containing a tuple of prover time, verifier time, and proof size if verification succeeds.
 fn round(i: usize) -> Option<(u64, u64, f32)> {
-    // Start timing the prover
-    let now = Instant::now();
-
+    // We define n to be the length of the isogeny walk
+    let n: usize = 2usize.pow((9 + i).try_into().unwrap());
+    // Read the isogeny walk from file. Pick the first 2^{9 + i} elements from the file
+    let isogeny_walk: Vec<F> = parse_isogeny_walk("isogeny_walk.txt").expect("Failed to parse file")[0..n].to_vec();
     // Define the list `l_list` based on the current round index
-    // This list can contain sublists of arbitrary positive integers, as we're using a generalized 
+    // This list can contain sublists of arbitrary positive integers, as we're using a generalized
     // version of the FRI protocol which can handle arbitrary folding factors
     let l_list: Vec<usize> = vec![vec![2; 11 + i]].concat();
 
-    // We define `s` as the generator of the group of order 2^5 * n, where n is the length of the isogeny walk
-    let mut s = F::new(MontFp!("20166910023067061949242007329499498203359431897882042367010355835922513064073298943410517857055490103593376746276366289375459766625"), MontFp!("9070588010778744328358501144613351095932673883221130019470787206592208103281447479286045237519441445473142536447684307414402867833"));
-    let mut s = F::new(MontFp!("20166910023067061949242007329499498203359431897882042367010355835922513064073298943410517857055490103593376746276366289375459766625"), MontFp!("9070588010778744328358501144613351095932673883221130019470787206592208103281447479286045237519441445473142536447684307414402867833"));
+    // Start timing the prover
+    let now = Instant::now();
 
-    // We modify s based on the length of the walk
-    for _ in 0..5 - i {
-        s = s.pow(&[2]);
-    }
-    let mut g: F = s.clone();
-    // <g> is the interpolation domain for the witness polynomials
-    for _ in 0..5 {
-        g = g.pow(&[2]);
-    }
-    // Define the field element `r` as some element not in <s> such that r<s> is a coset
-    let r: F = F::new(Fp::from(5), Fp::from(3));
-    
-    // Read the witness polynomial from a file
-    let witness: DensePolynomial<F> =
-        DensePolynomial { coeffs: lines_from_file(&format!("Phis/polynomial_{}.txt", 9 + i)).unwrap() };
-    let n = witness.coeffs.len();
+    // Define the interpolation domain for the witness polynomials
+    let interpolation_domain = GeneralEvaluationDomain::<F>::new(n).unwrap();
+    let g = interpolation_domain.element(1);
 
+    // Interpolate the witness polynomial as the isogeny walk over the interpolation domain
+    let witness_coeffs: Vec<F> = interpolation_domain.ifft(&isogeny_walk);
+    let witness: DensePolynomial<F> = DensePolynomial { coeffs: witness_coeffs };
+
+    // Generate randomness for the blinding factor
     let mut rng = test_rng();
     let a: F = F::rand(&mut rng);
     let b: F = F::rand(&mut rng);
     let c: F = F::rand(&mut rng);
 
     // Create a blinding factor polynomial
-    let blinding_factor: DensePolynomial<F> = DensePolynomial { coeffs: vec![a, b, c] }.naive_mul(&DensePolynomial {
-        coeffs: vec![vec![-F::from(1)], vec![F::from(0); n - 1], vec![F::from(1)]].concat(),
-    });
-    
+    let blinding_factor: DensePolynomial<F> = DensePolynomial { coeffs: vec![a, b, c] }
+        .mul(&DensePolynomial { coeffs: vec![vec![-F::from(1)], vec![F::from(0); n - 1], vec![F::from(1)]].concat() });
+
     // Apply the blinding factor to the witness polynomial
     let b_witness: DensePolynomial<F> = witness.clone() + blinding_factor;
 
-    // Read the psi polynomial from a file
-    let psi: DensePolynomial<F> =
-        DensePolynomial { coeffs: lines_from_file(&format!("Psis/polynomial_{}.txt", 9 + i)).unwrap() };
+    // Define the psi polynomial with evaluations (isogeny_walk[i]-isogeny_walk[i+2])^{-1} for the first n-2 elements
+    // Append 2 random elements to the end of the list
+    let mut psi_evals: Vec<F> =
+        (0..n - 2).map(|i| (isogeny_walk[i] - isogeny_walk[i + 2]).inverse().unwrap()).collect();
+    psi_evals.push(F::rand(&mut rng));
+    psi_evals.push(F::rand(&mut rng));
+    let psi_coeffs = interpolation_domain.ifft(&psi_evals);
+    let psi: DensePolynomial<F> = DensePolynomial { coeffs: psi_coeffs };
 
     // Evaluate the blinded witness polynomial at specific points
     let y_start: F = b_witness.evaluate(&F::from(1));
     let y_end: F = b_witness.evaluate(&g.pow(&[n as u64 - 1]));
 
+    // We define `s` as the generator of the group of order 2^5 * n, where n is the length of the isogeny walk
+    //let s = F::new(MontFp!("20166910023067061949242007329499498203359431897882042367010355835922513064073298943410517857055490103593376746276366289375459766625"), MontFp!("9070588010778744328358501144613351095932673883221130019470787206592208103281447479286045237519441445473142536447684307414402867833"));
+
     // s_ord is the multiplicative order of s
-    let s_ord: u64 = n as u64 * 32;
+    let s_ord: usize = n * 32;
+    // We modify s based on the length of the walk
+    //for _ in 0..5 - i {
+    //    s = s.pow(&[2]);
+    //}
+    //let mut g: F = s.clone();
+    // <g> is the interpolation domain for the witness polynomials
+    //for _ in 0..5 {
+    //    g = g.pow(&[2]);
+    //}
+    // Define the field element `r` as some element not in <s> such that r<s> is a coset
+    let r: F = F::new(Fp::from(5), Fp::from(3));
+    // In practice, we use <s> as the evaluation domain by transforming the polynomials P(x) -> P(r*x)
+    // and then evaluate that polynomial on <s>.
+    // This allows us to use FFTs for fast evaluation
+    let eval_domain = GeneralEvaluationDomain::<F>::new(s_ord).unwrap();
+    let s = eval_domain.element(1);
+
     // The below two variables are security parameteres are for the FRI protocol
     let rep_param: usize = 1;
     let grinding_param: u8 = 32;
 
     // Prove the validity of the isogeny walk
     let (challenge_vals, roots_fri, roots, paths_fri, points_fri, additional_paths_and_points, ws, paths_and_points) =
-        prove(witness, psi, g, s, r, s_ord, &y_start, &y_end, l_list.clone(), rep_param, grinding_param);
+        prove(witness, psi, g, r, s_ord, &y_start, &y_end, l_list.clone(), rep_param, grinding_param);
     println!("Prover Time: {} s", now.elapsed().as_secs());
     let prover_time = now.elapsed().as_secs();
 

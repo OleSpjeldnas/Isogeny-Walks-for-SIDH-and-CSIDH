@@ -1,20 +1,14 @@
-use ark_ff::{Fp2, Fp2Config, Fp448, MontBackend, MontFp,
-    Zero, One, UniformRand,
-};
+use ark_ff::{Fp2, Fp2Config, Fp448, MontBackend, MontFp, One, UniformRand, Zero};
 use ark_serialize::{
-    CanonicalSerialize, CanonicalSerializeWithFlags,
-    CanonicalDeserialize, CanonicalDeserializeWithFlags,
-    SerializationError, Flags, Read, Write
+    CanonicalDeserialize, CanonicalDeserializeWithFlags, CanonicalSerialize, CanonicalSerializeWithFlags, Flags, Read,
+    SerializationError, Write,
 };
+use rand::Rng;
 use std::fmt::{self, Debug, Display};
 use std::hash::Hash;
-use std::ops::{
-    Add, AddAssign, Div, DivAssign, Mul, MulAssign, 
-    Neg, Sub, SubAssign
-};
-use std::iter::{Sum, Product};
+use std::iter::{Product, Sum};
+use std::ops::{Add, AddAssign, Div, DivAssign, Mul, MulAssign, Neg, Sub, SubAssign};
 use zeroize::Zeroize;
-use rand::Rng;
 /// Define the field for the SIKE p434 parameters
 #[derive(ark_ff::fp::MontConfig)]
 #[modulus = "24439423661345221551909145011457493619085780243761596511325807336205221239331976725970216671828618445898719026692884939342314733567"]
@@ -44,7 +38,6 @@ impl FftField for MyFq2 {
     // The generator of the multiplicative group of the field
     const GENERATOR: Self = Self(Fq2::new(MontFp!("2"), MontFp!("1")));
 
-
     // The largest power of two dividing (q - 1).
     const TWO_ADICITY: u32 = 217;
 
@@ -55,10 +48,7 @@ impl FftField for MyFq2 {
 }
 
 #[derive(
-    Copy, Clone, Debug, Default,
-    PartialEq, Eq, PartialOrd, Ord,
-    Hash, Zeroize,
-    CanonicalSerialize, CanonicalDeserialize, 
+    Copy, Clone, Debug, Default, PartialEq, Eq, PartialOrd, Ord, Hash, Zeroize, CanonicalSerialize, CanonicalDeserialize,
 )]
 pub struct MyFq2(pub Fq2);
 
@@ -237,9 +227,7 @@ impl<'a> Product<&'a MyFq2> for MyFq2 {
     }
 }
 
-use ark_ff::{
-    fields::{Field}, LegendreSymbol, SqrtPrecomputation
-};
+use ark_ff::{fields::Field, LegendreSymbol, SqrtPrecomputation};
 
 impl Field for MyFq2 {
     type BasePrimeField = F;
@@ -389,11 +377,7 @@ impl<'a> MulAssign<&'a mut MyFq2> for MyFq2 {
 
 // Implement CanonicalSerializeWithFlags
 impl CanonicalSerializeWithFlags for MyFq2 {
-    fn serialize_with_flags<W: Write, F: Flags>(
-        &self,
-        mut writer: W,
-        flags: F,
-    ) -> Result<(), SerializationError> {
+    fn serialize_with_flags<W: Write, F: Flags>(&self, mut writer: W, flags: F) -> Result<(), SerializationError> {
         self.0.serialize_with_flags(&mut writer, flags)
     }
 
@@ -404,9 +388,7 @@ impl CanonicalSerializeWithFlags for MyFq2 {
 
 // Implement CanonicalDeserializeWithFlags
 impl CanonicalDeserializeWithFlags for MyFq2 {
-    fn deserialize_with_flags<R: Read, F: Flags>(
-        mut reader: R,
-    ) -> Result<(Self, F), SerializationError> {
+    fn deserialize_with_flags<R: Read, F: Flags>(mut reader: R) -> Result<(Self, F), SerializationError> {
         let (f, flags) = Fq2::deserialize_with_flags(&mut reader)?;
         Ok((MyFq2(f), flags))
     }

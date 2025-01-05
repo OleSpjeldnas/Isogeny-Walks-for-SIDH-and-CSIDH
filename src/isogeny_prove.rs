@@ -1,15 +1,14 @@
-use std::ops::{Div, Sub, Mul};
+use std::ops::{Div, Mul, Sub};
 
 use super::*;
 use ark_ff::UniformRand;
-use ark_poly::polynomial::univariate::DensePolynomial;
+use ark_poly::{polynomial::univariate::DensePolynomial, EvaluationDomain, GeneralEvaluationDomain};
 use ark_std::{rand::Rng, test_rng};
 use merkle::{poseidon_parameters, FieldMT};
 
-// Commit to a randomized vector based on polynomial evaluations in order to preserve the 
+// Commit to a randomized vector based on polynomial evaluations in order to preserve the
 // SHVZK property of the FRI protocol
-fn commit_with_rand(f: DensePolynomial<F>, eval_domain: Vec<F>) -> (Vec<F>, FieldMT, Vec<F>) {
-    let s_ord: u64 = eval_domain.len() as u64;
+fn commit_with_rand(f: DensePolynomial<F>, s_ord: usize, r: F) -> (Vec<F>, FieldMT, Vec<F>) {
     let params = poseidon_parameters();
     let leaf_crh_params = params.clone();
     let two_to_one_params = params.clone();
@@ -17,18 +16,18 @@ fn commit_with_rand(f: DensePolynomial<F>, eval_domain: Vec<F>) -> (Vec<F>, Fiel
     // Generate a random vector of F elements
     let mut rng = test_rng();
     let random_vec: Vec<F> = (0..s_ord).into_iter().map(|_| F::rand(&mut rng)).collect();
-    let pure_evals: Vec<F> = eval_domain.iter().map(|x| f.evaluate(x)).collect();
+    let eval_domain = GeneralEvaluationDomain::<F>::new(s_ord).unwrap();
+    // Transform f to f(r*x) so that we can use FFTs on the evaluation domain <s>
+    let f_transformed = transform_polynomial(f, r);
+    // Evaluate f(r*x) on the evaluation domain <s>
+    let pure_evals: Vec<F> = eval_domain.fft(&f_transformed);
     // Generate evaluation vector which adds f(eval_vec[i]) and random_vec[i]
     let randomized_evals: Vec<F> = pure_evals.iter().zip(random_vec.iter()).map(|(x, r)| x + r).collect();
 
     let evals_slice: Vec<Vec<Fp>> = randomized_evals.iter().map(|x| vec![x.c0(), x.c1()]).collect();
     let random_vec_slice: Vec<Vec<Fp>> = random_vec.iter().map(|x| vec![x.c0(), x.c1()]).collect();
-    
-    let randomized_evals = vec![
-        evals_slice,
-        random_vec_slice,
-    ]
-    .concat();
+
+    let randomized_evals = vec![evals_slice, random_vec_slice].concat();
 
     (pure_evals, FieldMT::new(&leaf_crh_params, &two_to_one_params, randomized_evals).unwrap(), random_vec)
 }
@@ -50,7 +49,7 @@ fn compute_pseudorandom_indices(c: F, n: usize, k: u32) -> Vec<usize> {
 
 // Executes steps 1.-6. of the BlindedEval subprotocol of FRI
 fn blinded_eval_first_six_steps(
-    evals_vec: Vec<F>, merkle_tree: FieldMT, random_vec: Vec<F>, eval_domain: Vec<F>, deg: usize, z: F, beta: usize,
+    evals_vec: Vec<F>, merkle_tree: FieldMT, random_vec: Vec<F>, r: F, s_ord: usize, deg: usize, z: F, beta: usize,
 ) -> (F, PathsAndPoints, DensePolynomial<F>, FieldMT, Vec<F>) {
     // First define random polynomial g with degree deg
     let mut rng = test_rng();
@@ -59,12 +58,10 @@ fn blinded_eval_first_six_steps(
     let params = poseidon_parameters();
     let leaf_crh_params = params.clone();
     let two_to_one_params = params.clone();
-
-    let s_ord = eval_domain.len();
     let k: u32 = (((s_ord as f32).log2()).ceil()) as u32;
 
     // Commit to g with rand
-    let (g_evals, g_mtree, random_vec_g) = commit_with_rand(g.clone(), eval_domain.clone());
+    let (g_evals, g_mtree, random_vec_g) = commit_with_rand(g.clone(), s_ord, r);
     let g_eval = g.evaluate(&z);
 
     // Generate random challenge from merkle root
@@ -252,9 +249,9 @@ fn verify_paths_and_points(paths_and_points: Vec<PathsPointsPlusMinus>) -> Optio
     Some(result)
 }
 // Witness is the witness polynomial, psi the inverse of w(x)-w(g^{2}*x), g the generator of the interpolation domain,
-//the evaluation domain is r<s>. Finally, s_ord is the size of E. 
+//the evaluation domain is r<s>. Finally, s_ord is the size of E.
 pub fn prove(
-    witness: DensePolynomial<F>, psi: DensePolynomial<F>, g: F, s: F, r: F, s_ord: u64, y_start: &F, y_end: &F,
+    witness: DensePolynomial<F>, psi: DensePolynomial<F>, g: F, r: F, s_ord: usize, y_start: &F, y_end: &F,
     l_list: Vec<usize>, rep_param: usize, grinding_param: u8,
 ) -> (Vec<F>, Vec<Fp>, Vec<Fp>, Vec<FieldPath>, Vec<F>, Vec<PathsPointsPlusMinus>, Vec<F>, Vec<PathsAndPoints>) {
     let n: usize = witness.coeffs.len();
@@ -264,9 +261,8 @@ pub fn prove(
     let b: F = F::rand(&mut rng);
     let c: F = F::rand(&mut rng);
     // Blind the witness
-    let blinding_factor: DensePolynomial<F> = DensePolynomial { coeffs: vec![a, b, c] }.mul(&DensePolynomial {
-        coeffs: vec![vec![-F::from(1)], vec![F::from(0); n - 1], vec![F::from(1)]].concat(),
-    });
+    let blinding_factor: DensePolynomial<F> = DensePolynomial { coeffs: vec![a, b, c] }
+        .mul(&DensePolynomial { coeffs: vec![vec![-F::from(1)], vec![F::from(0); n - 1], vec![F::from(1)]].concat() });
 
     let b_witness: DensePolynomial<F> = witness.clone() + blinding_factor.clone();
     let b_witness_plus: DensePolynomial<F> = DensePolynomial {
@@ -280,12 +276,9 @@ pub fn prove(
     let _leaf_crh_params = params.clone();
     let _two_to_one_params = params.clone();
 
-    // Define the evaluation domain 
-    let eval_domain: Vec<F> = (0..s_ord).into_iter().map(|i| r * s.pow([i])).collect();
-
     // Commit with randomness to the blinded witness and psi
-    let (witness_evals, witness_mtree, random_vec_witness) = commit_with_rand(b_witness.clone(), eval_domain.clone());
-    let (psi_evals, psi_mtree, random_vec_psi) = commit_with_rand(psi.clone(), eval_domain.clone());
+    let (witness_evals, witness_mtree, random_vec_witness) = commit_with_rand(b_witness.clone(), s_ord, r);
+    let (psi_evals, psi_mtree, random_vec_psi) = commit_with_rand(psi.clone(), s_ord, r);
 
     // Store the Merkle roots in a vector
     let mut roots: Vec<Fp> = vec![witness_mtree.root(), psi_mtree.root()];
@@ -304,9 +297,9 @@ pub fn prove(
 
     // Compute C(x)
     let c: DensePolynomial<F> = compute_c(c1, c2, c3, c4, &vec![alpha_1, alpha_2, alpha_3, alpha_4], &n);
-    
+
     // Commit to C(x)
-    let (c_evals, c_mtree, random_vec_c) = commit_with_rand(c.clone(), eval_domain.clone());
+    let (c_evals, c_mtree, random_vec_c) = commit_with_rand(c.clone(), s_ord, r);
 
     roots.push(c_mtree.root());
 
@@ -316,15 +309,12 @@ pub fn prove(
     let gz: F = g * z;
     let ggz: F = g * gz;
 
-    // Evaluate the polynomials on z 
+    // Evaluate the polynomials on z
     let witness_y: F = b_witness.evaluate(&z);
     let witness_y_plus: F = b_witness.evaluate(&gz);
     let witness_y_plus_plus: F = b_witness.evaluate(&ggz);
     let psi_y: F = psi.evaluate(&z);
     let c_y: F = c.evaluate(&z);
-
-    // Define E as in the batched general FRI protocol
-    let E: usize = 4 * n;
 
     // Execute the first 6 steps of the generalized FRI BlindedEval protocol on \phi(x), \psi(x), C(x)
     let (witness_g_eval, witness_paths_and_points, witness_g, witness_u_mtree, witness_u) =
@@ -332,22 +322,16 @@ pub fn prove(
             witness_evals,
             witness_mtree,
             random_vec_witness.clone(),
-            eval_domain.clone(),
+            r,
+            s_ord,
             n,
             z,
             rep_param,
         );
-    let (psi_g_eval, psi_paths_and_points, psi_g, psi_u_mtree, psi_u) = blinded_eval_first_six_steps(
-        psi_evals,
-        psi_mtree,
-        random_vec_psi.clone(),
-        eval_domain.clone(),
-        n,
-        z,
-        rep_param,
-    );
+    let (psi_g_eval, psi_paths_and_points, psi_g, psi_u_mtree, psi_u) =
+        blinded_eval_first_six_steps(psi_evals, psi_mtree, random_vec_psi.clone(), r, s_ord, n, z, rep_param);
     let (c_g_eval, c_paths_and_points, c_g, c_u_mtree, c_u) =
-        blinded_eval_first_six_steps(c_evals, c_mtree, random_vec_c.clone(), eval_domain.clone(), n, z, rep_param);
+        blinded_eval_first_six_steps(c_evals, c_mtree, random_vec_c.clone(), r, s_ord, n, z, rep_param);
     let challenge_vals: Vec<F> = vec![witness_y, witness_y_plus, witness_y_plus_plus, psi_y, c_y];
 
     // Save the evals vectors to a vector
@@ -364,6 +348,11 @@ pub fn prove(
         F::new(poseidon::CRH::<Fp>::evaluate(&params, vec![psi_paths_and_points.root_g]).unwrap(), Fp::from(0));
     let const_c = F::new(poseidon::CRH::<Fp>::evaluate(&params, vec![c_paths_and_points.root_g]).unwrap(), Fp::from(0));
 
+    // Define E as in the batched general FRI protocol
+    let E: usize = 4 * n;
+
+    // Define the Q polynomials as in the batched general FRI protocol
+
     let Q_0 =
         DensePolynomial { coeffs: vec![vec![F::from(0); E - n], vec![F::new(zeta_vec[0], Fp::from(0))]].concat() }
             .mul(
@@ -373,14 +362,14 @@ pub fn prove(
             )
             .div(&DensePolynomial { coeffs: vec![-z, F::from(1)] });
     let _Q_1 =
-    DensePolynomial { coeffs: vec![vec![F::from(0); E - n], vec![F::new(zeta_vec[1], Fp::from(0))]].concat() }
-        .mul(
-            &(witness_g.clone()
-                + DensePolynomial { coeffs: vec![const_witness] }.mul(&b_witness)
-                + DensePolynomial { coeffs: vec![-ws[0] - const_witness * challenge_vals[1]] }),
-        )
-        .div(&DensePolynomial { coeffs: vec![-gz, F::from(1)] });
-        let _Q_2 =
+        DensePolynomial { coeffs: vec![vec![F::from(0); E - n], vec![F::new(zeta_vec[1], Fp::from(0))]].concat() }
+            .mul(
+                &(witness_g.clone()
+                    + DensePolynomial { coeffs: vec![const_witness] }.mul(&b_witness)
+                    + DensePolynomial { coeffs: vec![-ws[0] - const_witness * challenge_vals[1]] }),
+            )
+            .div(&DensePolynomial { coeffs: vec![-gz, F::from(1)] });
+    let _Q_2 =
         DensePolynomial { coeffs: vec![vec![F::from(0); E - n], vec![F::new(zeta_vec[2], Fp::from(0))]].concat() }
             .mul(
                 &(witness_g.clone()
@@ -400,17 +389,16 @@ pub fn prove(
         + DensePolynomial { coeffs: vec![const_c] }.naive_mul(&c)
         + DensePolynomial { coeffs: vec![-ws[2] - const_c * challenge_vals[4]] })
     .div(&DensePolynomial { coeffs: vec![-z, F::from(1)] });
-    
-    let composition_poly = 
-        Q_0 
+
+    let composition_poly = Q_0 
         //+ Q_1
         //+ Q_2
         + Q_3
         + Q_4;
 
-    // Perform the FRI protocol on the composition polynomial P(x)
+    // Perform the generalized FRI protocol on the composition polynomial P(x)
     let (paths_fri, points_fri, roots_fri, indices) =
-        fri_prove(composition_poly, l_list, s, r, s_ord, rep_param, grinding_param);
+        generalized_fri_prove(composition_poly, l_list, r, s_ord, rep_param, grinding_param);
     let two_k = random_vec_witness.clone().len();
 
     let witness_paths_points_plus_minus =
@@ -427,7 +415,7 @@ pub fn prove(
 // Verifies a proof for the l-isogeny walk protocol
 pub fn verify(
     challenges: Vec<F>, roots_fri: Vec<Fp>, roots: Vec<Fp>, paths_fri: Vec<FieldPath>, points_fri: Vec<F>,
-    additional_paths_and_points: Vec<PathsPointsPlusMinus>, ws: Vec<F>, g: F, s: F, r: F, n: &u64, s_ord: u64,
+    additional_paths_and_points: Vec<PathsPointsPlusMinus>, ws: Vec<F>, g: F, s: F, r: F, n: &u64, s_ord: usize,
     y_start: &F, y_end: &F, l_list: Vec<usize>, rep_param: usize, grinding_param: u8,
     paths_and_points: Vec<PathsAndPoints>,
 ) -> bool {
