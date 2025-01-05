@@ -361,23 +361,7 @@ pub fn prove(
                     + DensePolynomial { coeffs: vec![-ws[0] - const_witness * challenge_vals[0]] }),
             )
             .div(&DensePolynomial { coeffs: vec![-z, F::from(1)] });
-    let _Q_1 =
-        DensePolynomial { coeffs: vec![vec![F::from(0); E - n], vec![F::new(zeta_vec[1], Fp::from(0))]].concat() }
-            .mul(
-                &(witness_g.clone()
-                    + DensePolynomial { coeffs: vec![const_witness] }.mul(&b_witness)
-                    + DensePolynomial { coeffs: vec![-ws[0] - const_witness * challenge_vals[1]] }),
-            )
-            .div(&DensePolynomial { coeffs: vec![-gz, F::from(1)] });
-    let _Q_2 =
-        DensePolynomial { coeffs: vec![vec![F::from(0); E - n], vec![F::new(zeta_vec[2], Fp::from(0))]].concat() }
-            .mul(
-                &(witness_g.clone()
-                    + DensePolynomial { coeffs: vec![const_witness] }.mul(&b_witness)
-                    + DensePolynomial { coeffs: vec![-ws[0] - const_witness * challenge_vals[2]] }),
-            )
-            .div(&DensePolynomial { coeffs: vec![-ggz, F::from(1)] });
-    let Q_3 =
+    let Q_1 =
         DensePolynomial { coeffs: vec![vec![F::from(0); E - n - 1], vec![F::new(zeta_vec[3], Fp::from(0))]].concat() }
             .mul(
                 &(psi_g.clone()
@@ -385,16 +369,12 @@ pub fn prove(
                     + DensePolynomial { coeffs: vec![-ws[1] - const_psi * challenge_vals[3]] }),
             )
             .div(&DensePolynomial { coeffs: vec![-z, F::from(1)] });
-    let Q_4 = (c_g.clone()
+    let Q_2 = (c_g.clone()
         + DensePolynomial { coeffs: vec![const_c] }.naive_mul(&c)
         + DensePolynomial { coeffs: vec![-ws[2] - const_c * challenge_vals[4]] })
     .div(&DensePolynomial { coeffs: vec![-z, F::from(1)] });
 
-    let composition_poly = Q_0 
-        //+ Q_1
-        //+ Q_2
-        + Q_3
-        + Q_4;
+    let composition_poly = Q_0 + Q_1 + Q_2;
 
     // Perform the generalized FRI protocol on the composition polynomial P(x)
     let (paths_fri, points_fri, roots_fri, indices) =
@@ -478,22 +458,16 @@ pub fn verify(
     // If the Merkle paths correctly verify, check the polynomial relation
     if let Some(points_for_consistency) = verify_paths_and_points(additional_paths_and_points) {
         let numerator_0 = ws[0] + const_witness * challenges[0];
-        //let numerator_1 = ws[0] + const_witness * challenges[1];
-        //let numerator_2 = ws[0] + const_witness * challenges[2];
-        let numerator_3 = ws[1] + const_psi * challenges[3];
-        let numerator_4 = ws[2] + const_c * challenges[4];
+        let numerator_1 = ws[1] + const_psi * challenges[3];
+        let numerator_2 = ws[2] + const_c * challenges[4];
 
         for (i, index) in indices_first.iter().enumerate() {
             let x_0: F = r * s.pow(&[*index as u64]);
             let witness_val_1: F = (points_for_consistency[0][i] - numerator_0) / (x_0 - z);
-            //let witness_val_2: F = (points_for_consistency[0][i] - numerator_1) / (x_0 - gz);
-            //let witness_val_3: F = (points_for_consistency[0][i] - numerator_2) / (x_0 - ggz);
-            let psi_val: F = (points_for_consistency[1][i] - numerator_3) / (x_0 - z);
-            let c_val: F = (points_for_consistency[2][i] - numerator_4) / (x_0 - z);
+            let psi_val: F = (points_for_consistency[1][i] - numerator_1) / (x_0 - z);
+            let c_val: F = (points_for_consistency[2][i] - numerator_2) / (x_0 - z);
             let asserted_p: F = F::new(zeta_vec[0], Fp::from(0)) * x_0.pow(&[E - n]) * witness_val_1
-                //+ F::new(zeta_vec[1], Fp::from(0)) * x_0.pow(&[E - n - 1]) * witness_val_2
-                //+ F::new(zeta_vec[2], Fp::from(0)) * x_0.pow(&[E - n - 1]) * witness_val_3
-                + F::new(zeta_vec[3], Fp::from(0)) * x_0.pow(&[E - n-1]) * psi_val
+                + F::new(zeta_vec[3], Fp::from(0)) * x_0.pow(&[E - n - 1]) * psi_val
                 + c_val;
             if asserted_p != points_first[i] {
                 return false;
@@ -557,8 +531,11 @@ fn mod_poly_poly(p: &DensePolynomial<F>, q: &DensePolynomial<F>, T: usize, g: F)
         + DensePolynomial { coeffs: vec![F::from(8748000000u128)] }.mul(&(p + q))
         + DensePolynomial { coeffs: vec![-F::from(157464000000000u128)] };
 
+    let vanishing_domain = GeneralEvaluationDomain::<F>::new(T).unwrap();
     temp.mul(&DensePolynomial { coeffs: vec![-g.pow(&[T as u64 - 1]), F::from(1)] })
-        .div(&DensePolynomial { coeffs: [vec![-F::from(1)], vec![F::from(0); T - 1], vec![F::from(1)]].concat() })
+        .divide_by_vanishing_poly(vanishing_domain)
+        .unwrap()
+        .0
 }
 
 fn initial_challenge(y_0: &F, eval: &F, x_0: &F) -> F {
@@ -567,7 +544,7 @@ fn initial_challenge(y_0: &F, eval: &F, x_0: &F) -> F {
 fn final_challenge(y_end: &F, eval: &F, x_0: &F, n: &u64, g: &F) -> F {
     (eval - y_end) / (x_0 - &g.pow(&[*n - 1]))
 }
-//Returns ((x-g^(T-2))*(x-g^(T-1))*(p(x)-q(x))*psi(x)-1)/(x^T-1)
+//Returns the polynomial ((x-g^(T-2))*(x-g^(T-1))*(p(x)-q(x))*psi(x)-1)/(x^T-1)
 fn psi_poly(
     p: &DensePolynomial<F>, q: &DensePolynomial<F>, psi: &DensePolynomial<F>, T: usize, g: F,
 ) -> DensePolynomial<F> {
@@ -575,12 +552,14 @@ fn psi_poly(
     let g_pow: F = g.pow(&[T as u64 - 2]);
     let x_1_poly: DensePolynomial<F> = DensePolynomial { coeffs: vec![-g_pow, F::from(1)] }
         .mul(&DensePolynomial { coeffs: vec![-g_pow * g, F::from(1)] });
-
+    let vanishing_domain = GeneralEvaluationDomain::<F>::new(T).unwrap();
     x_1_poly
         .mul(&(diff.mul(psi) + DensePolynomial { coeffs: vec![F::from(-1)] }))
-        .div(&DensePolynomial { coeffs: [vec![-F::from(1)], vec![F::from(0); T - 1], vec![F::from(1)]].concat() })
+        .divide_by_vanishing_poly(vanishing_domain)
+        .unwrap()
+        .0
 }
-
+// Returns (x_0-g^(T-2))*(x_0-g^(T-1))*(p(x_0)-q(x_0))*psi(x_0)-1)/(x_0^T-1)
 fn psi_challenge(y_witness: &F, y_witness_plusplus: &F, y_psi: &F, x_0: &F, n: &u64, g: &F) -> F {
     let g_pow: F = g.pow(&[*n as u64 - 2]);
     let g_prefactor: F = (*&x_0 - &g_pow) * (*&x_0 - &(g_pow * g));

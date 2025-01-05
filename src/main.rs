@@ -43,6 +43,7 @@ fn main() -> io::Result<()> {
     Ok(())
 }
 
+/// Parses the isogeny walk from a file and returns a vector of F elements.
 fn parse_isogeny_walk(filename: &str) -> io::Result<Vec<F>> {
     let file = File::open(filename)?;
     let reader = io::BufReader::new(file);
@@ -77,15 +78,6 @@ fn parse_isogeny_walk(filename: &str) -> io::Result<Vec<F>> {
     Ok(elements)
 }
 /// Writes the results of each round to a specified file.
-///
-/// # Arguments
-///
-/// * `results` - Reference to a vector of tuples containing round results.
-/// * `file_path` - The path to the file where results will be written.
-///
-/// # Returns
-///
-/// A `Result` indicating success or an `io::Error`.
 fn write_results_to_file(results: &Vec<(usize, u64, u64, f32)>, file_path: &str) -> io::Result<()> {
     let mut file = File::create(file_path)?;
     for result in results {
@@ -96,14 +88,6 @@ fn write_results_to_file(results: &Vec<(usize, u64, u64, f32)>, file_path: &str)
 }
 
 /// Executes a single round of the isogeny proof process.
-///
-/// # Arguments
-///
-/// * `i` - The index of the current round.
-///
-/// # Returns
-///
-/// An `Option` containing a tuple of prover time, verifier time, and proof size if verification succeeds.
 fn round(i: usize) -> Option<(u64, u64, f32)> {
     // We define n to be the length of the isogeny walk
     let n: usize = 2usize.pow((9 + i).try_into().unwrap());
@@ -151,20 +135,8 @@ fn round(i: usize) -> Option<(u64, u64, f32)> {
     let y_start: F = b_witness.evaluate(&F::from(1));
     let y_end: F = b_witness.evaluate(&g.pow(&[n as u64 - 1]));
 
-    // We define `s` as the generator of the group of order 2^5 * n, where n is the length of the isogeny walk
-    //let s = F::new(MontFp!("20166910023067061949242007329499498203359431897882042367010355835922513064073298943410517857055490103593376746276366289375459766625"), MontFp!("9070588010778744328358501144613351095932673883221130019470787206592208103281447479286045237519441445473142536447684307414402867833"));
-
     // s_ord is the multiplicative order of s
     let s_ord: usize = n * 32;
-    // We modify s based on the length of the walk
-    //for _ in 0..5 - i {
-    //    s = s.pow(&[2]);
-    //}
-    //let mut g: F = s.clone();
-    // <g> is the interpolation domain for the witness polynomials
-    //for _ in 0..5 {
-    //    g = g.pow(&[2]);
-    //}
     // Define the field element `r` as some element not in <s> such that r<s> is a coset
     let r: F = F::new(Fp::from(5), Fp::from(3));
     // In practice, we use <s> as the evaluation domain by transforming the polynomials P(x) -> P(r*x)
