@@ -3,16 +3,20 @@ use ark_crypto_primitives::{crh::poseidon, CRHScheme};
 use ark_ff::Field;
 use ark_poly::{univariate::DensePolynomial, DenseUVPolynomial, EvaluationDomain, GeneralEvaluationDomain, Polynomial};
 
+// This file contains the code for the Generalized FRI prover and verifier
+// It can be used as an independent module outside of the isogeny walk protocol
 // This function executes one folding step in the Generalized FRI algorithm
 fn fold(f: &DensePolynomial<F>, l: u8, theta: F) -> DensePolynomial<F> {
     let mut g_polys: Vec<Vec<F>> = Vec::new();
     let d = (((Polynomial::degree(f)) / (l as usize)) as f32).floor() as usize + 1;
     for j in 0..l {
+        // Compute theta^j
         let th = theta.pow(&[j as u64]);
         // The g are the g_i such that f(x) = x^i*g_i(x^l)
         let mut g: Vec<F> = vec![F::from(0); d];
 
         for (i, coeff) in f.coeffs.iter().enumerate() {
+            // Compute the folding step
             if (j as u64 > i as u64) && ((j as u64 - i as u64) % l as u64 == 0) {
                 g[i] += coeff * (&th);
             } else if (i as u64 >= j as u64) && ((i as u64 - j as u64) % l as u64 == 0) {
@@ -50,7 +54,7 @@ fn round_commit(f_folded: &DensePolynomial<F>, r: &F, s_ord: &usize) -> (FieldMT
     (mtree.clone(), mtree.root(), point_vec)
 }
 
-// Returns (Merkle Trees, Merkle Roots, Evaluations)
+// Returns (Merkle Trees, Merkle Roots, Evaluations) for the polynomials created by the folding steps
 fn commit(
     f: DensePolynomial<F>, l_list: Vec<usize>, mut r: F, mut s_ord: usize,
 ) -> (Vec<FieldMT>, Vec<Fp>, Vec<Vec<F>>) {
@@ -58,18 +62,22 @@ fn commit(
     let mut points: Vec<Vec<F>> = Vec::new();
     let mut roots: Vec<Fp> = Vec::new();
 
+    // Commit to the first polynomial
     let (first_mt, first_root, first_points) = round_commit(&f, &r, &s_ord);
     mtrees.push(first_mt);
     points.push(first_points);
     roots.push(first_root);
     let params = poseidon_parameters();
+    // Compute the thetas using Fiat-Shamir
     let mut theta_vec: Vec<F> = Vec::new();
     theta_vec.push(F::new(poseidon::CRH::<Fp>::evaluate(&params, roots.clone()).unwrap(), Fp::from(0)));
     let n_rounds = l_list.len();
     let folded_polys: &mut Vec<DensePolynomial<F>> = &mut Vec::new();
     folded_polys.push(f);
     for i in 0..n_rounds {
+        // Compute the folded polynomial
         folded_polys.push(fold(folded_polys.last().unwrap(), l_list[i] as u8, theta_vec[i]));
+        // Update the root and the evaluation domain
         r = r.pow([l_list[i] as u64]);
         s_ord /= l_list[i];
         let (m, r, p) = round_commit(folded_polys.last().unwrap(), &r, &s_ord);
@@ -81,6 +89,7 @@ fn commit(
     (mtrees, roots, points)
 }
 
+// Query the FRI prover at a given index
 fn query_at_index(
     mt1: FieldMT, mt2: FieldMT, points1: Vec<F>, points2: Vec<F>, index: usize, l: usize, n: usize,
 ) -> (Vec<FieldPath>, Vec<F>) {
@@ -102,16 +111,19 @@ fn query_at_index(
     (paths, points)
 }
 
+// This function is executed by the FRI verifier to perform all the queries to the Prover
 fn query(
     mtrees: Vec<FieldMT>, points: Vec<Vec<F>>, l_list: Vec<usize>, n: usize, alpha: usize, grinding_param: u8,
 ) -> (Vec<FieldPath>, Vec<F>, Vec<usize>) {
     let mut paths: Vec<FieldPath> = Vec::new();
     let mut queried_points: Vec<F> = Vec::new();
-
-    // Vec of indices to query consistency for PolyIOP
+    // indices_first contains the first queried index of each FRI repetition.
+    //This is used for a consistency check and therefore stored in the proof
     let mut indices_first: Vec<usize> = Vec::new();
+    // indices contains the indices queried at each step of FRI
     let mut indices: Vec<u64> = Vec::new();
     indices.push(calculate_hash(&l_list, n).try_into().unwrap());
+    // Alpha is the repetition parameter for the FRI protocol
     for _ in 0..alpha {
         indices_first.push(*indices.last().unwrap() as usize);
         let mut s_ord = n.clone();
@@ -129,7 +141,9 @@ fn query(
 
             paths = [paths.clone(), m].concat();
             queried_points = [queried_points.clone(), p.clone()].concat();
+            // Compute the next index to query using Fiat-Shamir
             indices.push(calculate_hash(&indices, s_ord).try_into().unwrap());
+            // Update the evaluation domain
             s_ord /= l;
         }
     }
@@ -142,6 +156,7 @@ fn query(
     (paths, queried_points, indices_first)
 }
 
+// This function is executed by the FRI prover to prove that f is of low degree
 pub fn generalized_fri_prove(
     f: DensePolynomial<F>, l_list: Vec<usize>, r: F, s_ord: usize, alpha: usize, grinding_param: u8,
 ) -> (Vec<FieldPath>, Vec<F>, Vec<Fp>, Vec<usize>) {
@@ -190,6 +205,7 @@ pub fn fri_verify(
     s_vals.push(s);
     s_ord_vals.push(s_ord);
     r_vals.push(r);
+    // Compute the values of t, s, r, and s_ord for each FRI repetition
     for (i, l) in l_list.as_slice().iter().enumerate() {
         t_vals.push(s.pow(&[(s_ord / *l) as u64]));
 
@@ -209,7 +225,7 @@ pub fn fri_verify(
     let mut indices: Vec<usize> = vec![calculate_hash(&l_list, s_ord)];
     let mut i: usize = 0;
     for __ in 0..alpha {
-        //points_first.push(queried_points[i]);
+        // Verify the provided Merkle paths, exit if any fail
         for (j, l) in l_list.iter().enumerate() {
             assert!(paths[i]
                 .verify(
@@ -240,6 +256,7 @@ pub fn fri_verify(
         indices_first.push(*indices.last().unwrap() as usize);
         points_first.push(queried_points[1]);
         for (i, l) in l_list.as_slice().iter().enumerate() {
+            // Verify each folding step, exit if any fail
             let index = *indices.last().unwrap();
             assert!(verify_fold_at_index(
                 queried_points[0..*l as usize + 1].to_vec(),
@@ -253,7 +270,7 @@ pub fn fri_verify(
             queried_points.drain(0..*l as usize + 1);
         }
     }
-    //queried_points = queried_points[grinding_param as usize..].to_vec();
+    // Add the queried points
     for i in 0..grinding_param {
         indices_first.push(calculate_hash(&indices_first.last().unwrap(), s_ord).try_into().unwrap());
         points_first.push(queried_points[i as usize]);
@@ -272,6 +289,8 @@ pub fn transform_polynomial(p: DensePolynomial<F>, alpha: F) -> DensePolynomial<
     DensePolynomial::from_coefficients_vec(coeffs)
 }
 
+// This function is used to compute the hash of a given index
+// It is used by both the FRI prover and verifier to ensure consistency
 use std::collections::hash_map::DefaultHasher;
 use std::hash::{Hash, Hasher};
 fn calculate_hash<T: Hash>(t: &T, n: usize) -> usize {

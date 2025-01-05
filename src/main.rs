@@ -4,6 +4,7 @@ pub mod sidh_sike_p434;
 use sidh_sike_p434::{MyFq2 as F, F as Fp};
 pub mod matrix;
 use matrix::*;
+pub mod merkle;
 use merkle::{poseidon_parameters, FieldMT, FieldPath};
 use std::{
     fs::File,
@@ -11,19 +12,14 @@ use std::{
     str::FromStr,
     time::Instant,
 };
-
-// TODO: Move to separate crate
 pub mod generalized_fri;
-pub mod get_roots;
-pub mod isogeny_prove;
-use ark_crypto_primitives::crh::poseidon;
-use ark_crypto_primitives::CRHScheme;
-use ark_ff::{Field, UniformRand};
-use ark_std::test_rng;
 use generalized_fri::*;
-use isogeny_prove::{prove, verify};
-pub mod merkle;
+pub mod isogeny_prove;
+use ark_crypto_primitives::{crh::poseidon, CRHScheme};
+use ark_ff::{Field, UniformRand};
 use ark_serialize::{CanonicalSerialize, Compress};
+use ark_std::test_rng;
+use isogeny_prove::{prove, verify};
 
 // The entry point of the application.
 // Executes multiple rounds of isogeny proofs and records the results.
@@ -33,7 +29,7 @@ fn main() -> io::Result<()> {
     for i in 0..5 {
         if let Some(result) = round(i) {
             // Store the round index, prover time, verifier time, and proof size
-            results.push((9+i, result.0, result.1, result.2));
+            results.push((9 + i, result.0, result.1, result.2));
         }
     } // Specify the path to the file where you want to save the results
     let file_path = "results_new.txt";

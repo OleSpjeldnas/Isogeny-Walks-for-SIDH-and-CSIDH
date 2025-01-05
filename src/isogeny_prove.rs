@@ -6,6 +6,8 @@ use ark_poly::{polynomial::univariate::DensePolynomial, EvaluationDomain, Genera
 use ark_std::{rand::Rng, test_rng};
 use merkle::{poseidon_parameters, FieldMT};
 
+// This file contains the code for the isogeny walk prover and verifier
+
 // Commit to a randomized vector based on polynomial evaluations in order to preserve the
 // SHVZK property of the FRI protocol
 fn commit_with_rand(f: DensePolynomial<F>, s_ord: usize, r: F) -> (Vec<F>, FieldMT, Vec<F>) {
