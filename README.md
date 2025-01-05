@@ -3,6 +3,7 @@ This repository contains the code from the paper "Verifying Isogeny Walks with S
 
 The code is organized into the following modules:
 - [isogeny_walk.txt](isogeny_walk.txt) contains the isogeny walk we generated for the proofs
+- [results.txt](results.txt) contains the benchmarks we got from running [src/main.rs](src/main.rs) on a MacBook Pro with the M3 Pro chip.
 - [src/generalized_fri.rs](src/generalized_fri.rs) is a module for the generalized FRI PCS introduced in the paper. This can be used in external projects as is.
 - [src/isogeny_prove.rs](src/isogeny_prove.rs) contains the prover and verifier for the zk-PolyIOP for 2-isogeny walks
 - [src/main.rs](src/main.rs) contains the script which generated the benchmarks from the isogeny walk
